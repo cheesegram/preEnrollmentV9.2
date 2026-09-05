@@ -43,10 +43,7 @@ function Curriculum() {
   return (
     <section className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
-<<<<<<< HEAD
         eyebrow="Academic program"
-=======
->>>>>>> 5a92b7d (added new COR PDF export function)
         title="Curriculum"
         description="Review regular and irregular curriculum subjects by year and semester."
         actions={
