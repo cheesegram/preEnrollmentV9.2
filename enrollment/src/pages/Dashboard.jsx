@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useState, useRef } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import Modal from '../components/Modal';
 import StudentsTable from '../components/StudentsTable';
 import api from "../lib/axios";
@@ -10,12 +10,7 @@ import LoadingState from "../components/ui/LoadingState";
 import Panel from "../components/ui/Panel";
 import { buildScheduleMap } from "../lib/scheduleUtils";
 import { pushImportNotification } from "../lib/notificationUtils";
-import {
-    exportStudentAsPdf,
-    exportSectionAsPdf,
-    parseBlockApplicantFile,
-    sanitizeFileName,
-} from "../utils/studentFiles";
+import { exportStudentAsPdf, exportSectionAsPdf } from "../utils/studentFiles";
 import { getStudentSectionDisplay, getStudentYearDisplay } from "../utils/studentDisplay";
 
 function Dashboard() {
@@ -28,14 +23,8 @@ function Dashboard() {
     const [loading, setLoading] = useState(true);
     const [modalQuery, setModalQuery] = useState("");
     const [yearFilter, setYearFilter] = useState("All Year");
-    const [isImporting, setIsImporting] = useState(false);
-    const [isEnrolling, setIsEnrolling] = useState(false);
+    const [individualEnrollingId, setIndividualEnrollingId] = useState(null);
     const [isBatchEnrolling, setIsBatchEnrolling] = useState(false);
-    const [blockEnrollOpen, setBlockEnrollOpen] = useState(false);
-    const [blockPreviewData, setBlockPreviewData] = useState(null);
-    const [blockImportRows, setBlockImportRows] = useState([]);
-    const [isBlockEnrolling, setIsBlockEnrolling] = useState(false);
-    const [showBlockBlockedList, setShowBlockBlockedList] = useState(false);
     const [selectedSectionGroup, setSelectedSectionGroup] = useState(null);
     const [previewData, setPreviewData] = useState(null);
     const [showEnrollmentPreview, setShowEnrollmentPreview] = useState(false);
@@ -48,8 +37,6 @@ function Dashboard() {
     const [exportingId, setExportingId] = useState(null);
     const [atPageBottom, setAtPageBottom] = useState(false);
     const [bottomSheetDismissed, setBottomSheetDismissed] = useState(false);
-    const importInputRef = useRef(null);
-
     const isNewStudent = (student) => String(student.year) === "1" && String(student.semester) === "1st" && student.status !== "Pending";
 
     const newStudentsCount = students.filter(isNewStudent).length;
@@ -278,144 +265,6 @@ function Dashboard() {
         return list;
     }, [students, sections, sectionExportQuery]);
 
-    const handleQuickImport = () => {
-        if (isImporting) return;
-        importInputRef.current?.click();
-    };
-
-    const handleEnrollApplicant = async (applicant) => {
-        if (isEnrolling) return;
-        try {
-            setIsEnrolling(true);
-            const response = await api.post("/students/enroll", {
-                applicantID: applicant.applicantID,
-            });
-            const successMsg = `Enrolled ${applicant.applicant_name} (${applicant.applicantID}) successfully`;
-            toast.success(successMsg);
-            pushImportNotification(successMsg, "success");
-            await fetchStudents();
-            await fetchSections();
-            const pendingRes = await api.get("/students/applicants", { params: { t: Date.now() } });
-            setPendingApplicants(Array.isArray(pendingRes.data) ? pendingRes.data : []);
-        } catch (error) {
-            console.error("Enroll failed", error);
-            const responseStatus = error?.response?.status;
-            const blockReason = error?.response?.data?.blockReason;
-            const message = error?.response?.data?.message;
-            const errorMsg = message || "Failed to enroll applicant";
-
-            toast.error(errorMsg);
-            pushImportNotification(
-                `${applicant.applicant_name} (${applicant.applicantID}) : ${errorMsg}`,
-                "error"
-            );
-
-            // Log blocked enrollment details if available
-            if (responseStatus === 409 && blockReason === "student_exists") {
-                const studentNumber = error?.response?.data?.studentNumber;
-                const detailMsg = `${applicant.applicant_name} (${applicant.applicantID}) : Enrollment blocked - Student number ${studentNumber} already exists in the database`;
-                pushImportNotification(detailMsg, "error");
-            }
-        } finally {
-            setIsEnrolling(false);
-        }
-    };
-
-    const handleImportFile = async (event) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-
-        try {
-            setIsImporting(true);
-            const parsedApplicants = await parseBlockApplicantFile(file);
-
-            console.log(`[Frontend] Previewing block enrollment for ${parsedApplicants.length} applicant(s) from ${file.name}`);
-
-            const response = await api.post("/students/block-import-preview", {
-                students: parsedApplicants,
-            });
-
-            setBlockImportRows(parsedApplicants);
-            setBlockPreviewData({
-                fileName: file.name,
-                placements: Array.isArray(response.data?.placements) ? response.data.placements : [],
-                blocked: Array.isArray(response.data?.blocked) ? response.data.blocked : [],
-            });
-            setShowBlockBlockedList(false);
-            setBlockEnrollOpen(true);
-        } catch (error) {
-            console.error("[Frontend] Block applicant import failed", error);
-
-            const message = error?.response?.data?.message || error?.message || "Failed to read the applicant file";
-            toast.error(message);
-            pushImportNotification(message, "error");
-        } finally {
-            setIsImporting(false);
-            event.target.value = "";
-        }
-    };
-
-    const handleConfirmBlockEnroll = async () => {
-        if (!blockPreviewData || isBlockEnrolling) return;
-
-        try {
-            setIsBlockEnrolling(true);
-            const response = await api.post("/students/import", {
-                students: blockImportRows,
-                importType: "block",
-            });
-
-            try {
-                await api.post("/sections/sync");
-            } catch (syncError) {
-                console.warn("[Frontend] Section sync after block import failed", syncError);
-            }
-
-            const imported = response?.data?.imported ?? 0;
-            const blocked = Array.isArray(response?.data?.blocked) ? response.data.blocked : [];
-
-            blocked.forEach((student) => {
-                const studentNumber = String(student.studentNumber ?? "").trim();
-                const name = `${String(student.firstName ?? "").trim()} ${String(student.lastName ?? "").trim()}`.trim();
-                const msg = `${studentNumber} - ${name} : Student number already exist in the database`;
-                toast.error(msg);
-                pushImportNotification(msg, "error");
-            });
-
-            const blockedNumbers = new Set(
-                blocked.map((student) => String(student.studentNumber ?? "").trim())
-            );
-
-            blockPreviewData.placements
-                .filter((placement) => !blockedNumbers.has(String(placement.studentNumber ?? "").trim()))
-                .forEach((placement) => {
-                    const detailMsg = `${placement.applicantID} - ${placement.applicant_name} : Enrolled to Section ${placement.assigned_section}`;
-                    pushImportNotification(detailMsg, "success");
-                });
-
-            if (imported > 0) {
-                const msg = `Enrolled ${imported} block applicant(s) from ${blockPreviewData.fileName}`;
-                toast.success(msg);
-                pushImportNotification(msg, "success");
-
-                await fetchStudents();
-                await fetchSections();
-            } else {
-                toast.error("No block applicants were enrolled");
-            }
-
-            setBlockEnrollOpen(false);
-            setBlockPreviewData(null);
-            setBlockImportRows([]);
-            setShowBlockBlockedList(false);
-        } catch (error) {
-            console.error("Block enroll failed", error);
-            toast.error(error?.response?.data?.message || "Failed to enroll block applicants");
-        } finally {
-            setIsBlockEnrolling(false);
-        }
-    };
-
     // Year filter mapping: display labels -> numeric values used in data
     const yearFilterOptions = [
         { label: "All Year", value: null },
@@ -456,14 +305,16 @@ function Dashboard() {
         });
     }, [pendingModalApplicants, yearFilter]);
 
-    const handlePreviewBatchEnroll = async () => {
+    const handlePreviewBatchEnroll = async (applicantIDs) => {
         if (!selectedSectionGroup || isBatchEnrolling) return;
-        const applicantIDs = selectedSectionGroup.applicants.map((a) => a.applicantID).filter(Boolean);
-        if (applicantIDs.length === 0) return;
+        const idsToPreview = Array.isArray(applicantIDs)
+            ? applicantIDs
+            : selectedSectionGroup.applicants.map((a) => a.applicantID).filter(Boolean);
+        if (idsToPreview.length === 0) return;
 
         try {
             setIsBatchEnrolling(true);
-            const response = await api.post("/students/batch-enroll-preview", { applicantIDs });
+            const response = await api.post("/students/batch-enroll-preview", { applicantIDs: idsToPreview });
             const { placements, blocked, notFound } = response.data;
             setPreviewData({ placements, blocked, notFound });
             setShowEnrollmentPreview(true);
@@ -472,6 +323,20 @@ function Dashboard() {
             toast.error(error?.response?.data?.message || "Failed to preview enrollment");
         } finally {
             setIsBatchEnrolling(false);
+        }
+    };
+
+    const handleIndividualEnroll = async (applicant) => {
+        const applicantID = applicant?.applicantID;
+        if (!applicantID || individualEnrollingId || isBatchEnrolling) return;
+
+        try {
+            setIndividualEnrollingId(applicantID);
+            await handlePreviewBatchEnroll([applicantID]);
+        } catch (error) {
+            console.error("Individual enrollment preview failed", error);
+        } finally {
+            setIndividualEnrollingId(null);
         }
     };
 
@@ -676,19 +541,12 @@ function Dashboard() {
                     <p className="mt-1 text-sm text-slate-500">Complete common enrollment tasks without leaving the dashboard.</p>
                 </div>
 
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <QuickActionCard
                         icon="fa-solid fa-user-plus"
                         title={`To be admitted (${pendingCount})`}
                         description="Review approved applicants and enroll them."
                         onClick={() => openModal("To Be Admitted")}
-                    />
-                    <QuickActionCard
-                        icon="fa-solid fa-file-arrow-up"
-                        title={isImporting ? "Importing records..." : "Import student file"}
-                        description="Upload student records using CSV or XLSX."
-                        onClick={handleQuickImport}
-                        disabled={isImporting}
                     />
                     <QuickActionCard
                         icon="fa-solid fa-file-arrow-down"
@@ -999,6 +857,7 @@ function Dashboard() {
                                                     <th className="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-gray-500 border-b border-gray-200">Applicant ID</th>
                                                     <th className="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-gray-500 border-b border-gray-200">Applicant Name</th>
                                                     <th className="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-gray-500 text-center border-b border-gray-200">Status</th>
+                                                    <th className="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-gray-500 text-center border-b border-gray-200">Action</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-100">
@@ -1007,6 +866,26 @@ function Dashboard() {
                                                         <td className="px-6 py-4 font-medium text-gray-900">{applicant.applicantID || '-'}</td>
                                                         <td className="px-6 py-4 text-gray-800">{applicant.applicant_name || '-'}</td>
                                                         <td className="px-6 py-4 text-center text-gray-700">{applicant.isIrregular === true ? "Confirmed | Irregular" : (applicant.status || '-')}</td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleIndividualEnroll(applicant)}
+                                                                disabled={Boolean(individualEnrollingId) || isBatchEnrolling}
+                                                                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                                            >
+                                                                {individualEnrollingId === applicant.applicantID ? (
+                                                                    <>
+                                                                        <i className="fa-solid fa-spinner fa-spin" />
+                                                                        Enrolling...
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <i className="fa-solid fa-user-plus" />
+                                                                        Enroll
+                                                                    </>
+                                                                )}
+                                                            </button>
+                                                        </td>
                                                     </tr>
                                                 ))}
                                             </tbody>
@@ -1209,89 +1088,6 @@ function Dashboard() {
                 </div>
             </Modal>
 
-            <Modal open={blockEnrollOpen} onClose={() => { if (!isBlockEnrolling) { setBlockEnrollOpen(false); setShowBlockBlockedList(false); } }} title="Confirm Enrollment">
-                <div className="flex flex-col gap-4 max-h-[70vh]">
-                    <div className="shrink-0">
-                        <p className="text-sm text-gray-500">
-                            Review the block applicants from <span className="font-semibold text-gray-700">{blockPreviewData?.fileName}</span> and the section each applicant will be assigned to by the auto sectioning.
-                        </p>
-                        {blockPreviewData?.blocked?.length > 0 && (
-                            <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-                                <p className="text-sm font-semibold text-red-700">
-                                    {blockPreviewData.blocked.length} applicant(s) blocked (student number already exists) and will be skipped
-                                </p>
-                            </div>
-                        )}
-                    </div>
-                    <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border border-gray-200 bg-white">
-                        <table className="min-w-full text-sm">
-                            <thead className="sticky top-0 bg-gray-50 border-b border-gray-200 text-gray-600 uppercase text-xs">
-                                <tr>
-                                    <th className="px-4 py-3 text-left">Applicant ID</th>
-                                    <th className="px-4 py-3 text-left">Applicant Name</th>
-                                    <th className="px-4 py-3 text-center">Assigned Section</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {(blockPreviewData?.placements ?? []).length > 0 ? (
-                                    blockPreviewData.placements.map((placement, index) => (
-                                        <tr key={placement.applicantID || placement.studentNumber || index} className="hover:bg-gray-50/80">
-                                            <td className="px-4 py-3 font-medium text-gray-900">{placement.applicantID || "-"}</td>
-                                            <td className="px-4 py-3 text-gray-800">{placement.applicant_name || "-"}</td>
-                                            <td className="px-4 py-3 text-center">
-                                                <span className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200">
-                                                    <i className="fa-solid fa-layer-group text-[0.6rem]" />
-                                                    Section {placement.assigned_year}-{placement.assigned_section}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))
-                                ) : (
-                                    <tr>
-                                        <td colSpan={3} className="px-4 py-8 text-center text-gray-500">No enrollable applicants found in this file.</td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div className="border-t border-gray-200 pt-3 flex items-center justify-end gap-3 shrink-0">
-                        <button
-                            type="button"
-                            onClick={() => setBlockEnrollOpen(false)}
-                            disabled={isBlockEnrolling}
-                            className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleConfirmBlockEnroll}
-                            disabled={isBlockEnrolling || (blockPreviewData?.placements ?? []).length === 0}
-                            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {isBlockEnrolling ? (
-                                <>
-                                    <i className="fa-solid fa-spinner fa-spin" />
-                                    Enrolling...
-                                </>
-                            ) : (
-                                <>
-                                    <i className="fa-solid fa-check" />
-                                    Confirm Enroll {(blockPreviewData?.placements ?? []).length > 0 && `(${blockPreviewData.placements.length})`}
-                                </>
-                            )}
-                        </button>
-                    </div>
-                </div>
-            </Modal>
-
-            <input
-                ref={importInputRef}
-                type="file"
-                accept=".csv,.xlsx"
-                className="hidden"
-                onChange={handleImportFile}
-            />
         </>
     );
 }
