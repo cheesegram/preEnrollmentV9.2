@@ -9,13 +9,19 @@ const SIZE_CLASSES = {
   full: "max-w-[96rem]",
 };
 
+let openModalCount = 0;
+let previousBodyOverflow = "";
+
 function Modal({ open, onClose, title, children, size = "xl" }) {
   const titleId = useId();
 
   useEffect(() => {
     if (!open) return undefined;
 
-    const previousOverflow = document.body.style.overflow;
+    if (openModalCount === 0) {
+      previousBodyOverflow = document.body.style.overflow;
+    }
+    openModalCount += 1;
     document.body.style.overflow = "hidden";
 
     const handleEscape = (event) => {
@@ -24,7 +30,10 @@ function Modal({ open, onClose, title, children, size = "xl" }) {
 
     window.addEventListener("keydown", handleEscape);
     return () => {
-      document.body.style.overflow = previousOverflow;
+      openModalCount = Math.max(0, openModalCount - 1);
+      if (openModalCount === 0) {
+        document.body.style.overflow = previousBodyOverflow;
+      }
       window.removeEventListener("keydown", handleEscape);
     };
   }, [open, onClose]);

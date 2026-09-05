@@ -29,6 +29,10 @@ function Dashboard() {
     const [previewData, setPreviewData] = useState(null);
     const [showEnrollmentPreview, setShowEnrollmentPreview] = useState(false);
     const [showBlockedList, setShowBlockedList] = useState(false);
+    const [curriculumApplicant, setCurriculumApplicant] = useState(null);
+    const [curriculumSubjects, setCurriculumSubjects] = useState([]);
+    const [curriculumLoading, setCurriculumLoading] = useState(false);
+    const [curriculumError, setCurriculumError] = useState("");
     const [exportTypeOpen, setExportTypeOpen] = useState(false);
     const [studentExportOpen, setStudentExportOpen] = useState(false);
     const [sectionExportOpen, setSectionExportOpen] = useState(false);
@@ -324,6 +328,52 @@ function Dashboard() {
         } finally {
             setIsBatchEnrolling(false);
         }
+    };
+
+    const normalizeCurriculumYear = (year) => {
+        const value = String(year ?? "").trim().toLowerCase();
+        const yearMap = {
+            "1": "1st", "1st": "1st", first: "1st", "first year": "1st",
+            "2": "2nd", "2nd": "2nd", second: "2nd", "second year": "2nd",
+            "3": "3rd", "3rd": "3rd", third: "3rd", "third year": "3rd",
+            "4": "4th", "4th": "4th", fourth: "4th", "fourth year": "4th",
+        };
+        return yearMap[value] || "1st";
+    };
+
+    const getCurriculumSemesterIndex = (semester) => {
+        const value = String(semester ?? "").trim().toLowerCase();
+        return ["2", "2nd", "second", "second semester", "2nd semester"].includes(value) ? 1 : 0;
+    };
+
+    const handleOpenApplicantCurriculum = async (applicant) => {
+        setCurriculumApplicant(applicant);
+        setCurriculumSubjects([]);
+        setCurriculumError("");
+        setCurriculumLoading(true);
+
+        try {
+            const yearKey = normalizeCurriculumYear(applicant?.year);
+            const response = await api.get(`/curriculum/${yearKey}`);
+            const semesterIndex = getCurriculumSemesterIndex(applicant?.semester);
+            const subjects = response.data?.semesters?.[semesterIndex]?.subjects;
+
+            if (!Array.isArray(subjects) || subjects.length === 0) {
+                setCurriculumError("No curriculum subjects found for this year and semester.");
+            } else {
+                setCurriculumSubjects(subjects);
+            }
+        } catch (error) {
+            setCurriculumError(error?.response?.data?.message || "Failed to load curriculum details.");
+        } finally {
+            setCurriculumLoading(false);
+        }
+    };
+
+    const closeApplicantCurriculum = () => {
+        setCurriculumApplicant(null);
+        setCurriculumSubjects([]);
+        setCurriculumError("");
     };
 
     const handleIndividualEnroll = async (applicant) => {
@@ -856,6 +906,7 @@ function Dashboard() {
                                                 <tr>
                                                     <th className="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-gray-500 border-b border-gray-200">Applicant ID</th>
                                                     <th className="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-gray-500 border-b border-gray-200">Applicant Name</th>
+                                                    <th className="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-gray-500 text-center border-b border-gray-200">Curriculum</th>
                                                     <th className="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-gray-500 text-center border-b border-gray-200">Status</th>
                                                     <th className="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-gray-500 text-center border-b border-gray-200">Action</th>
                                                 </tr>
@@ -865,6 +916,16 @@ function Dashboard() {
                                                     <tr key={`${applicant.applicantID || 'applicant'}-${index}`} className="hover:bg-gray-50/80 transition-colors">
                                                         <td className="px-6 py-4 font-medium text-gray-900">{applicant.applicantID || '-'}</td>
                                                         <td className="px-6 py-4 text-gray-800">{applicant.applicant_name || '-'}</td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleOpenApplicantCurriculum(applicant)}
+                                                                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-100"
+                                                            >
+                                                                <i className="fa-solid fa-book-open" />
+                                                                Curriculum
+                                                            </button>
+                                                        </td>
                                                         <td className="px-6 py-4 text-center text-gray-700">{applicant.isIrregular === true ? "Confirmed | Irregular" : (applicant.status || '-')}</td>
                                                         <td className="px-6 py-4 text-center">
                                                             <button
@@ -1085,6 +1146,63 @@ function Dashboard() {
                             </tbody>
                         </table>
                     </div>
+                </div>
+            </Modal>
+
+            <Modal
+                open={Boolean(curriculumApplicant)}
+                onClose={closeApplicantCurriculum}
+                title="Curriculum Checklist"
+                size="lg"
+            >
+                <div className="flex flex-col gap-4">
+                    <p className="text-sm font-medium text-slate-600">
+                        {curriculumApplicant?.applicant_name || "Applicant"}
+                        <span className="mx-1.5">&bull;</span>
+                        Year {curriculumApplicant?.year || "-"}
+                        <span className="mx-1.5">&bull;</span>
+                        {curriculumApplicant?.semester || "1st"} Semester
+                    </p>
+
+                    {curriculumLoading ? (
+                        <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 text-slate-500">
+                            <i className="fa-solid fa-circle-notch fa-spin text-3xl text-emerald-700" />
+                            <p className="text-sm font-semibold">Loading curriculum details...</p>
+                        </div>
+                    ) : curriculumError ? (
+                        <div className="flex min-h-[260px] flex-col items-center justify-center gap-2 text-center text-slate-500">
+                            <i className="fa-regular fa-calendar-xmark text-4xl text-slate-300" />
+                            <p className="text-base font-bold text-slate-700">Curriculum details not available</p>
+                            <p className="max-w-md text-xs text-slate-500">{curriculumError}</p>
+                        </div>
+                    ) : (
+                        <div className="max-h-[60vh] overflow-auto rounded-xl border border-slate-200 bg-white shadow-xs">
+                            <table className="min-w-full border-collapse text-sm">
+                                <thead className="sticky top-0 border-b border-[#BFD9BC] bg-[#E4F6E2] text-[#315B46]">
+                                    <tr>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Code</th>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Title</th>
+                                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Lec</th>
+                                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Lab</th>
+                                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Units</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {curriculumSubjects.map((subject, index) => (
+                                        <tr key={`${subject.subject_code || subject.code || "subject"}-${index}`} className="hover:bg-slate-50/80">
+                                            <td className="whitespace-nowrap px-4 py-3 font-mono text-xs font-semibold text-slate-800">
+                                                {subject.subject_code || subject.code || "-"}
+                                            </td>
+                                            <td className="px-4 py-3 text-xs font-medium text-slate-700">{subject.title || "-"}</td>
+                                            <td className="px-4 py-3 text-center text-xs text-slate-600">{subject.lecture ?? 0}</td>
+                                            <td className="px-4 py-3 text-center text-xs text-slate-600">{subject.laboratory ?? 0}</td>
+                                            <td className="px-4 py-3 text-center text-xs font-bold text-emerald-800">{subject.units ?? 0}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
                 </div>
             </Modal>
 
