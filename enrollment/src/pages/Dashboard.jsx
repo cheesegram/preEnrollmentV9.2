@@ -8,7 +8,7 @@ import StatCard from "../components/ui/StatCard";
 import QuickActionCard from "../components/ui/QuickActionCard";
 import LoadingState from "../components/ui/LoadingState";
 import Panel from "../components/ui/Panel";
-import { buildScheduleMap } from "../lib/scheduleUtils";
+import { buildScheduleMap, buildStudentScheduleKeys, formatScheduleTimeRange } from "../lib/scheduleUtils";
 import { pushImportNotification } from "../lib/notificationUtils";
 import { exportStudentAsPdf, exportSectionAsPdf } from "../utils/studentFiles";
 import { getStudentSectionDisplay, getStudentYearDisplay } from "../utils/studentDisplay";
@@ -33,6 +33,10 @@ function Dashboard() {
     const [curriculumSubjects, setCurriculumSubjects] = useState([]);
     const [curriculumLoading, setCurriculumLoading] = useState(false);
     const [curriculumError, setCurriculumError] = useState("");
+    const [scheduleApplicant, setScheduleApplicant] = useState(null);
+    const [applicantScheduleRows, setApplicantScheduleRows] = useState([]);
+    const [applicantScheduleLoading, setApplicantScheduleLoading] = useState(false);
+    const [applicantScheduleError, setApplicantScheduleError] = useState("");
     const [exportTypeOpen, setExportTypeOpen] = useState(false);
     const [studentExportOpen, setStudentExportOpen] = useState(false);
     const [sectionExportOpen, setSectionExportOpen] = useState(false);
@@ -374,6 +378,55 @@ function Dashboard() {
         setCurriculumApplicant(null);
         setCurriculumSubjects([]);
         setCurriculumError("");
+    };
+
+    const handleOpenApplicantSchedule = async (placement) => {
+        const scheduleStudent = {
+            year: placement?.assigned_year,
+            semester: placement?.assigned_semester,
+            section: placement?.assigned_section,
+        };
+        setScheduleApplicant(placement);
+        setApplicantScheduleRows([]);
+        setApplicantScheduleError("");
+        setApplicantScheduleLoading(true);
+
+        try {
+            let activeMap = scheduleMap;
+            if (!activeMap || activeMap.size === 0) {
+                const schedulesRes = await api.get("/schedules");
+                const schedules = Array.isArray(schedulesRes.data) ? schedulesRes.data : [];
+                const scheduleDetails = (await Promise.allSettled(
+                    schedules.map(async (schedule) => {
+                        if (!schedule?._id) return null;
+                        const detailsRes = await api.get(`/schedules/${schedule._id}`);
+                        return detailsRes.data;
+                    })
+                ))
+                    .map((result) => (result.status === "fulfilled" ? result.value : null))
+                    .filter(Boolean);
+                activeMap = buildScheduleMap(scheduleDetails);
+            }
+
+            const scheduleKeys = buildStudentScheduleKeys(scheduleStudent);
+            const lookupKey = scheduleKeys.find((key) => activeMap.has(key));
+            const rows = lookupKey ? activeMap.get(lookupKey) : null;
+            if (!rows?.length) {
+                setApplicantScheduleError(`No schedule found for Section ${placement?.assigned_year || "-"}-${placement?.assigned_section || "-"}.`);
+            } else {
+                setApplicantScheduleRows(rows);
+            }
+        } catch (error) {
+            setApplicantScheduleError(error?.response?.data?.message || "Failed to load schedule details.");
+        } finally {
+            setApplicantScheduleLoading(false);
+        }
+    };
+
+    const closeApplicantSchedule = () => {
+        setScheduleApplicant(null);
+        setApplicantScheduleRows([]);
+        setApplicantScheduleError("");
     };
 
     const handleIndividualEnroll = async (applicant) => {
@@ -820,6 +873,7 @@ function Dashboard() {
                                                         <tr>
                                                             <th className="px-4 py-3 text-left">Applicant ID</th>
                                                             <th className="px-4 py-3 text-left">Name</th>
+                                                            <th className="px-4 py-3 text-center">Schedule</th>
                                                             <th className="px-4 py-3 text-center">Assigned Section</th>
                                                         </tr>
                                                     </thead>
@@ -828,6 +882,16 @@ function Dashboard() {
                                                             <tr key={p.applicantID || idx} className="hover:bg-gray-50/80">
                                                                 <td className="px-4 py-3 font-medium text-gray-900">{p.applicantID}</td>
                                                                 <td className="px-4 py-3 text-gray-800">{p.applicant_name}</td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleOpenApplicantSchedule(p)}
+                                                                        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-100"
+                                                                    >
+                                                                        <i className="fa-solid fa-calendar-days" />
+                                                                        Schedule
+                                                                    </button>
+                                                                </td>
                                                                 <td className="px-4 py-3 text-center">
                                                                     <div className="flex flex-wrap items-center justify-center gap-1.5">
                                                                         {getAssignedSectionsForPreview(p).map((sectionEntry, sectionIndex, allSections) => (
@@ -1197,6 +1261,61 @@ function Dashboard() {
                                             <td className="px-4 py-3 text-center text-xs text-slate-600">{subject.lecture ?? 0}</td>
                                             <td className="px-4 py-3 text-center text-xs text-slate-600">{subject.laboratory ?? 0}</td>
                                             <td className="px-4 py-3 text-center text-xs font-bold text-emerald-800">{subject.units ?? 0}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            </Modal>
+
+            <Modal
+                open={Boolean(scheduleApplicant)}
+                onClose={closeApplicantSchedule}
+                title="Class Schedule"
+                size="lg"
+            >
+                <div className="flex flex-col gap-4">
+                    <p className="text-sm font-medium text-slate-600">
+                        {scheduleApplicant?.applicant_name || "Applicant"}
+                        <span className="mx-1.5">&bull;</span>
+                        Section {scheduleApplicant?.assigned_year || "-"}-{scheduleApplicant?.assigned_section || "-"}
+                        <span className="mx-1.5">&bull;</span>
+                        {scheduleApplicant?.assigned_semester || "1st"} Semester
+                    </p>
+
+                    {applicantScheduleLoading ? (
+                        <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 text-slate-500">
+                            <i className="fa-solid fa-circle-notch fa-spin text-3xl text-emerald-700" />
+                            <p className="text-sm font-semibold">Loading schedule details...</p>
+                        </div>
+                    ) : applicantScheduleError ? (
+                        <div className="flex min-h-[260px] flex-col items-center justify-center gap-2 text-center text-slate-500">
+                            <i className="fa-regular fa-calendar-xmark text-4xl text-slate-300" />
+                            <p className="text-base font-bold text-slate-700">Schedule details not available</p>
+                            <p className="max-w-md text-xs text-slate-500">{applicantScheduleError}</p>
+                        </div>
+                    ) : (
+                        <div className="max-h-[60vh] overflow-auto rounded-xl border border-slate-200 bg-white shadow-xs">
+                            <table className="min-w-full border-collapse text-sm">
+                                <thead className="sticky top-0 border-b border-[#BFD9BC] bg-[#E4F6E2] text-[#315B46]">
+                                    <tr>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Subject</th>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Day</th>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Time</th>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Room</th>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Professor</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {applicantScheduleRows.map((classRow, index) => (
+                                        <tr key={`${classRow.subjectCode || classRow.subject_code || "subject"}-${index}`} className="hover:bg-slate-50/80">
+                                            <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-800">{classRow.subjectCode ?? classRow.subject_code ?? "-"}</td>
+                                            <td className="px-4 py-3 text-xs font-medium text-slate-700">{classRow.day || "-"}</td>
+                                            <td className="px-4 py-3 text-xs font-medium text-slate-700">{formatScheduleTimeRange(classRow.startTime, classRow.endTime)}</td>
+                                            <td className="px-4 py-3 text-xs text-slate-700">{classRow.roomName ?? classRow.room_name ?? "-"}</td>
+                                            <td className="px-4 py-3 text-xs text-slate-700">{classRow.progName ?? classRow.profName ?? "-"}</td>
                                         </tr>
                                     ))}
                                 </tbody>
