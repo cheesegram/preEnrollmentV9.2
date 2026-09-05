@@ -10,7 +10,7 @@ import { buildScheduleMap } from "../lib/scheduleUtils";
 import { getStudentPlacements, studentMatchesFilters } from "../utils/studentDisplay";
 
 const YEAR_OPTIONS = ["All Year", "First Year", "Second Year", "Third Year", "Fourth Year"];
-const STATUS_OPTIONS = ["To Be Admitted", "All Registered", "Block", "Irregular"];
+const STATUS_OPTIONS = ["To Be Enrolled", "All Registered", "Block", "Irregular"];
 const YEAR_MAP = { "First Year": "1", "Second Year": "2", "Third Year": "3", "Fourth Year": "4" };
 
 function FilterSelect({ label, value, onChange, options }) {
@@ -47,7 +47,7 @@ function StudentList() {
   const [selectedSection, setSelectedSection] = useState("All Section");
   const [scheduleMap, setScheduleMap] = useState(new Map());
 
-  const isPendingView = selectedStatus === "To Be Admitted";
+  const isPendingView = selectedStatus === "To Be Enrolled";
 
   const availableSections = useMemo(() => {
     const nonPending = students.filter((student) => student.status !== "Pending");

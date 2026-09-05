@@ -282,7 +282,7 @@ function Dashboard() {
         { label: "Fourth Year", value: "4" },
     ];
 
-    // Group pending applicants by year, semester, section for the "To Be Admitted" UI
+    // Group pending applicants by year, semester, section for the "To Be Enrolled" UI
     const applicantSectionGroups = useMemo(() => {
         const groups = {};
         pendingModalApplicants.forEach((applicant) => {
@@ -647,9 +647,9 @@ function Dashboard() {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <QuickActionCard
                         icon="fa-solid fa-user-plus"
-                        title={`To be admitted (${pendingCount})`}
+                        title={`To be enrolled (${pendingCount})`}
                         description="Review approved applicants and enroll them."
-                        onClick={() => openModal("To Be Admitted")}
+                        onClick={() => openModal("To Be Enrolled")}
                     />
                     <QuickActionCard
                         icon="fa-solid fa-file-arrow-down"
@@ -749,9 +749,9 @@ function Dashboard() {
             </div>
 
             <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={modalTitle}>
-                <div className={`flex flex-col gap-4 p-4 md:p-6 overflow-hidden ${modalTitle === "To Be Admitted" ? "h-[70vh]" : "max-h-[80vh] h-full"}`}>
+                <div className={`flex flex-col gap-4 p-4 md:p-6 overflow-hidden ${modalTitle === "To Be Enrolled" ? "h-[70vh]" : "max-h-[80vh] h-full"}`}>
                     <div className="relative flex w-full shrink-0">
-                        {modalTitle === "To Be Admitted" && !selectedSectionGroup ? (
+                        {modalTitle === "To Be Enrolled" && !selectedSectionGroup ? (
                             <div className="flex flex-wrap gap-2 w-full">
                                 {yearFilterOptions.map((opt) => {
                                     const isActive = yearFilter === (opt.value ?? "All Year");
@@ -771,7 +771,7 @@ function Dashboard() {
                                     );
                                 })}
                             </div>
-                        ) : modalTitle === "To Be Admitted" && selectedSectionGroup ? null : (
+                        ) : modalTitle === "To Be Enrolled" && selectedSectionGroup ? null : (
                             <>
                                 <input
                                     type="text"
@@ -798,7 +798,7 @@ function Dashboard() {
                         )}
                     </div>
                     <div className="rounded-xl border border-gray-200 flex-1 bg-white min-h-0 overflow-hidden flex flex-col">
-                        {modalTitle === "To Be Admitted" ? (
+                        {modalTitle === "To Be Enrolled" ? (
                             selectedSectionGroup && showEnrollmentPreview && previewData ? (
                                 // Show enrollment preview (Confirm Enrollment view)
                                 <div className="flex flex-col flex-1 min-h-0">
