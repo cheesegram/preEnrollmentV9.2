@@ -157,6 +157,32 @@ function SectionList() {
     }
   };
 
+  const refreshSectionsAfterMove = async () => {
+    try {
+      const response = await api.get("/sections", { params: { t: Date.now() } });
+      const rawSections = Array.isArray(response.data) ? response.data : [];
+      const uniqueSections = new Map();
+      rawSections.forEach((section) => {
+        const key = `${String(section.year ?? "")}::${String(section.section ?? "")}::${String(section.semester ?? "")}`;
+        const existing = uniqueSections.get(key);
+        if (!existing || Number(section.blockCount ?? section.regular ?? 0) > Number(existing.blockCount ?? existing.regular ?? 0)) {
+          uniqueSections.set(key, section);
+        }
+      });
+      setSections(Array.from(uniqueSections.values()).map((section) => ({
+        ...section,
+        blockCount: Number(section.blockCount ?? section.regular ?? 0),
+        irregularCount: Number(section.irregularCount ?? section.irregular ?? 0),
+        blockCapacity: Number(section.blockCapacity ?? section.regularCapacity ?? 45),
+        irregularCapacity: Number(section.irregularCapacity ?? 5),
+        totalCapacity: Number(section.totalCapacity ?? 50),
+        total: Number(section.blockCount ?? section.regular ?? 0) + Number(section.irregularCount ?? section.irregular ?? 0),
+      })).filter((section) => section.blockCount > 0 || section.irregularCount > 0));
+    } catch (error) {
+      console.error("Failed to refresh sections after student move", error);
+    }
+  };
+
   const handleConfirmCapacityUpdate = async () => {
     if (!previewData || isUpdating) return;
 
@@ -390,7 +416,13 @@ function SectionList() {
         {loading ? (
           <LoadingState label="Loading section data..." />
         ) : (
-          <SectionTable sections={displayedSections} students={students} />
+          <SectionTable
+            sections={displayedSections}
+            allSections={sections}
+            students={students}
+            onStudentsChanged={refreshStudents}
+            onSectionsChanged={refreshSectionsAfterMove}
+          />
         )}
       </Panel>
 

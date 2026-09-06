@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import toast from "react-hot-toast";
 import Pagination from "./ui/Pagination";
 import StudentsTable from "./StudentsTable";
+import api from "../lib/axios";
 
 function getCapacityStateStyle(count, capacity) {
   const currentCount = Number(count || 0);
@@ -11,8 +13,13 @@ function getCapacityStateStyle(count, capacity) {
   return "bg-green-100 text-green-700 font-bold";
 }
 
-function SectionTable({ sections, students, className = "" }) {
+function SectionTable({ sections, students, allSections = sections, onStudentsChanged, onSectionsChanged, className = "" }) {
   const [studentListSection, setStudentListSection] = useState(null);
+  const [moveMode, setMoveMode] = useState(false);
+  const [selectedStudentIds, setSelectedStudentIds] = useState([]);
+  const [moveStep, setMoveStep] = useState("students");
+  const [targetSection, setTargetSection] = useState(null);
+  const [isMoving, setIsMoving] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
@@ -66,13 +73,60 @@ function SectionTable({ sections, students, className = "" }) {
     setCurrentPage(1);
   };
 
-  const openStudentList = (section) => setStudentListSection(section);
-  const closeStudentList = () => setStudentListSection(null);
+  const openStudentList = (section) => {
+    setStudentListSection(section);
+    setMoveMode(false);
+    setSelectedStudentIds([]);
+    setMoveStep("students");
+    setTargetSection(null);
+  };
+  const closeStudentList = () => {
+    setStudentListSection(null);
+    setMoveMode(false);
+    setSelectedStudentIds([]);
+    setMoveStep("students");
+    setTargetSection(null);
+  };
+
+  const targetSections = useMemo(() => {
+    if (!studentListSection) return [];
+    return (Array.isArray(allSections) ? allSections : []).filter((section) =>
+      String(section.year ?? "").trim() === String(studentListSection.year ?? "").trim() &&
+      String(section.semester ?? "").trim() === String(studentListSection.semester ?? "").trim() &&
+      String(section.section ?? "").trim().toUpperCase() !== String(studentListSection.section ?? "").trim().toUpperCase()
+    );
+  }, [allSections, studentListSection]);
+
+  const handleMoveStudents = async () => {
+    if (!targetSection || selectedStudentIds.length === 0 || isMoving) return;
+    try {
+      setIsMoving(true);
+      await api.post("/students/move-section", {
+        studentIds: selectedStudentIds,
+        targetSection: {
+          year: targetSection.year,
+          section: targetSection.section,
+          semester: targetSection.semester,
+        },
+      });
+      await onStudentsChanged?.();
+      await onSectionsChanged?.();
+      toast.success("Students moved successfully");
+      closeStudentList();
+    } catch (error) {
+      console.error("Failed to move students", error);
+      toast.error(error?.response?.data?.message || "Failed to move students");
+    } finally {
+      setIsMoving(false);
+    }
+  };
 
   const studentRowsForModal = useMemo(
     () => (studentListSection ? getStudentRowsForSection(studentListSection) : []),
     [studentListSection, studentList]
   );
+
+  const selectedStudents = studentRowsForModal.filter((student) => selectedStudentIds.includes(String(student._id)));
 
   const columnCount = 9;
 
@@ -101,7 +155,6 @@ function SectionTable({ sections, students, className = "" }) {
                 const blockCount = Number(sec.blockCount ?? sec.regular ?? 0);
                 const irregularCount = Number(sec.irregularCount ?? sec.irregular ?? 0);
                 const total = blockCount + irregularCount;
-                const studentRows = getStudentRowsForSection(sec);
 
                 return (
                   <tr key={sec._id || `${sec.year}-${sec.section}-${sec.semester}`} className="hover:bg-emerald-50/60 transition-colors">
@@ -111,7 +164,7 @@ function SectionTable({ sections, students, className = "" }) {
                     <td className="px-5 py-4 text-center">
                       <button
                         type="button"
-                        onClick={() => onOpenStudentList?.(sec, "block")}
+                        onClick={() => openStudentList(sec)}
                         className={`${getCapacityStateStyle(blockCount, blockCapacity)} underline underline-offset-2 hover:opacity-80`}
                         aria-label={`View enrolled students for section ${sec.section}`}
                       >
@@ -121,7 +174,7 @@ function SectionTable({ sections, students, className = "" }) {
                     <td className="px-5 py-4 text-center">
                       <button
                         type="button"
-                        onClick={() => onOpenStudentList?.(sec, "irregular")}
+                        onClick={() => openStudentList(sec)}
                         className={`${getCapacityStateStyle(irregularCount, irregularCapacity)} underline underline-offset-2 hover:opacity-80`}
                         aria-label={`View irregular students for section ${sec.section}`}
                       >
@@ -207,9 +260,98 @@ function SectionTable({ sections, students, className = "" }) {
                 </button>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 p-2 sm:p-4">
-                <StudentsTable students={studentRowsForModal} tableHeightClass="h-full min-h-[320px]" />
-              </div>
+              {moveStep === "students" && (
+                <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoveMode((active) => !active);
+                      setSelectedStudentIds([]);
+                    }}
+                    className="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white transition hover:bg-emerald-800"
+                  >
+                    {moveMode ? "Cancel" : "Move Students"}
+                  </button>
+                  {moveMode && (
+                    <button
+                      type="button"
+                      onClick={() => setMoveStep("targets")}
+                      disabled={selectedStudentIds.length === 0}
+                      className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Change Section
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {moveStep === "students" ? (
+                <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 p-2 sm:p-4">
+                  {moveMode ? (
+                    <table className="min-w-full text-sm">
+                      <thead className="sticky top-0 bg-gray-50 text-gray-600">
+                        <tr>
+                          <th className="px-4 py-3 text-center">Select</th>
+                          <th className="px-4 py-3 text-left">Student Number</th>
+                          <th className="px-4 py-3 text-left">Student Name</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {studentRowsForModal.map((student) => {
+                          const studentId = String(student._id);
+                          return (
+                            <tr key={studentId}>
+                              <td className="px-4 py-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedStudentIds.includes(studentId)}
+                                  onChange={() => setSelectedStudentIds((current) =>
+                                    current.includes(studentId) ? current.filter((id) => id !== studentId) : [...current, studentId]
+                                  )}
+                                  className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
+                                />
+                              </td>
+                              <td className="px-4 py-3 font-medium">{student.studentNumber || "-"}</td>
+                              <td className="px-4 py-3">{`${student.firstName ?? ""} ${student.lastName ?? ""}`.trim() || "-"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <StudentsTable students={studentRowsForModal} tableHeightClass="h-full min-h-[320px]" />
+                  )}
+                </div>
+              ) : moveStep === "targets" ? (
+                <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto bg-slate-50/50 p-4">
+                  <button type="button" onClick={() => setMoveStep("students")} className="self-start text-sm font-semibold text-emerald-700">Back to students</button>
+                  <h4 className="text-lg font-bold text-slate-900">Select Target Section</h4>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {targetSections.map((section) => (
+                      <button
+                        key={`${section.year}-${section.section}-${section.semester}`}
+                        type="button"
+                        onClick={() => { setTargetSection(section); setMoveStep("confirm"); }}
+                        className="rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-emerald-400 hover:bg-emerald-50"
+                      >
+                        <p className="font-bold text-slate-900">Year {section.year} - Section {section.section}</p>
+                        <p className="mt-1 text-xs text-slate-500">{section.semester} Semester · {section.total ?? 0}/{section.totalCapacity ?? 0}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto bg-slate-50/50 p-5">
+                  <button type="button" onClick={() => setMoveStep("targets")} className="self-start text-sm font-semibold text-emerald-700">Back to target sections</button>
+                  <h4 className="text-lg font-bold text-slate-900">CONFIRM SECTION CHANGE</h4>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase text-slate-500">Previous Section</p><p className="mt-2 font-semibold">Year {studentListSection.year} - Section {studentListSection.section}</p></div>
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p className="text-xs font-bold uppercase text-emerald-700">New Section</p><p className="mt-2 font-semibold text-emerald-900">Year {targetSection?.year} - Section {targetSection?.section}</p></div>
+                  </div>
+                  <p className="text-sm text-slate-600">{selectedStudents.length} student(s) will be transferred.</p>
+                  <button type="button" onClick={handleMoveStudents} disabled={isMoving} className="self-end rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">{isMoving ? "Changing..." : "Confirm Changes"}</button>
+                </div>
+              )}
             </div>
           </div>,
           document.body

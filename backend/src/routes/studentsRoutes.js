@@ -14,6 +14,7 @@ import {
   importStudents,
   blockImportPreview,
   updateStudent,
+  moveStudentsToSection,
   exportStudentPdf,
   exportSectionPdf,
 } from "../controllers/studentsController.js";
@@ -35,6 +36,7 @@ router.get("/:id/export-pdf", exportStudentPdf);
 router.get("/:id", getStudentById);
 router.post("/", createStudent);
 router.put("/:id", updateStudent);
+router.post("/move-section", moveStudentsToSection);
 router.delete("/:id", deleteStudent);
 
 export default router;

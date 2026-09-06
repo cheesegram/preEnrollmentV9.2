@@ -709,6 +709,65 @@ export async function updateStudent(req, res) {
   }
 }
 
+export async function moveStudentsToSection(req, res) {
+  try {
+    const { studentIds, targetSection } = req.body ?? {};
+    if (!Array.isArray(studentIds) || studentIds.length === 0 || !targetSection) {
+      return res.status(400).json({ message: "studentIds and targetSection are required" });
+    }
+
+    const targetYear = normalizeText(targetSection.year);
+    const targetName = normalizeSectionName(targetSection.section);
+    const targetSemester = normalizeSemester(targetSection.semester);
+    const target = await Section.findOne({ year: targetYear, section: targetName, semester: targetSemester });
+    if (!target) return res.status(404).json({ message: "Target section not found" });
+
+    const studentsToMove = await Student.find({
+      _id: { $in: studentIds },
+      year: targetYear,
+      semester: targetSemester,
+    }).lean();
+    if (studentsToMove.length !== studentIds.length) {
+      return res.status(400).json({ message: "Some selected students do not match the target year and semester" });
+    }
+
+    const sourceKeys = new Set(
+      studentsToMove.map((student) => `${normalizeText(student.year)}::${normalizeSemester(student.semester)}::${normalizeSectionName(student.section)}`)
+    );
+    const blockToMove = studentsToMove.filter((student) => normalizeText(student.status).toLowerCase() !== "irregular").length;
+    const irregularToMove = studentsToMove.length - blockToMove;
+    const targetBlockCount = Number(target.blockCount ?? 0);
+    const targetIrregularCount = Number(target.irregularCount ?? 0);
+    const nextBlockCapacity = Math.max(Number(target.blockCapacity ?? 0), targetBlockCount + blockToMove);
+    const nextIrregularCapacity = Math.max(Number(target.irregularCapacity ?? 0), targetIrregularCount + irregularToMove);
+    const nextTotalCapacity = Math.max(Number(target.totalCapacity ?? 0), nextBlockCapacity + nextIrregularCapacity);
+
+    await Section.findByIdAndUpdate(target._id, {
+      $set: {
+        blockCapacity: nextBlockCapacity,
+        irregularCapacity: nextIrregularCapacity,
+        totalCapacity: nextTotalCapacity,
+      },
+    });
+    await Student.updateMany(
+      { _id: { $in: studentIds } },
+      { $set: { section: targetName } }
+    );
+
+    sourceKeys.add(`${targetYear}::${targetSemester}::${targetName}`);
+    for (const sourceKey of sourceKeys) {
+      const [year, semester, section] = sourceKey.split("::");
+      await syncSectionFromStudents({ year, semester, section });
+    }
+
+    const updatedTarget = await Section.findOne({ year: targetYear, section: targetName, semester: targetSemester }).lean();
+    return res.status(200).json({ message: "Students moved successfully", section: updatedTarget });
+  } catch (error) {
+    console.error("Error moving students to section", error);
+    return res.status(500).json({ message: "Failed to move students" });
+  }
+}
+
 export async function deleteStudent(req, res) {
   try {
     const deletedStudent = await Student.findByIdAndDelete(req.params.id);
