@@ -1,5 +1,15 @@
 import * as XLSX from "xlsx";
 
+function parsePrerequisites(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return [];
+  return raw.split(/[;,/]/).map((entry) => entry.trim()).filter(Boolean);
+}
+
+function formatPrerequisites(value) {
+  return Array.isArray(value) ? value.filter(Boolean).join("/") : String(value ?? "").trim();
+}
+
 /**
  * Convert nested JSON to curriculum template CSV format.
  */
@@ -108,7 +118,7 @@ function buildSplitTemplateRows(doc) {
   const rows = [
     [yearLabel],
     ["FIRST SEMESTER", "", "", "", "", "", "SECOND SEMESTER"],
-    ["", "Code", "Title", "Lec", "Lab", "Units", "", "Code", "Title", "Lec", "Lab", "Units"],
+    ["", "Code", "Title", "Lec", "Lab", "Units", "Pre-Requisite", "", "Code", "Title", "Lec", "Lab", "Units", "Pre-Requisite"],
   ];
 
   let lec1 = 0;
@@ -143,16 +153,19 @@ function buildSplitTemplateRows(doc) {
       left ? leftLec : "",
       left ? leftLab : "",
       left ? leftUnits : "",
+      formatPrerequisites(left?.prerequisites),
+      "",
       right ? "_______" : "",
       right?.subject_code ?? right?.code ?? "",
       right?.title ?? "",
       right ? rightLec : "",
       right ? rightLab : "",
       right ? rightUnits : "",
+      formatPrerequisites(right?.prerequisites),
     ]);
   }
 
-  rows.push(["", "", "", lec1, lab1, units1, "", "", "", lec2, lab2, units2]);
+  rows.push(["", "", "", lec1, lab1, units1, "", "", "", "", lec2, lab2, units2, ""]);
   return rows;
 }
 
@@ -206,6 +219,13 @@ function parseSplitTemplateRows(rows) {
     return -1;
   };
 
+  const findColumn = (startIndex, endIndex, names) => {
+    for (let col = startIndex; col <= endIndex; col++) {
+      if (names.includes(normalize(columnsRow[col]))) return col;
+    }
+    return -1;
+  };
+
   const leftScanStart = Math.max(0, semesterHeader.firstIdx - 1);
   const leftScanEnd = Math.max(leftScanStart, semesterHeader.secondIdx - 1);
   const rightScanStart = Math.max(semesterHeader.secondIdx - 1, semesterHeader.secondIdx);
@@ -217,6 +237,19 @@ function parseSplitTemplateRows(rows) {
   if (leftCodeCol < 0 || rightCodeCol < 0) {
     return null;
   }
+
+  const leftBlockEnd = Math.max(leftCodeCol, rightCodeCol - 1);
+  const rightBlockEnd = columnsRow.length - 1;
+  const getColumns = (codeCol, blockEnd) => ({
+    code: codeCol,
+    title: findColumn(codeCol, blockEnd, ["title"]),
+    lecture: findColumn(codeCol, blockEnd, ["lec", "lecture"]),
+    laboratory: findColumn(codeCol, blockEnd, ["lab", "laboratory"]),
+    units: findColumn(codeCol, blockEnd, ["units", "unit"]),
+    prerequisites: findColumn(codeCol, blockEnd, ["pre-requisite", "pre requisite", "prerequisite", "prerequisites"]),
+  });
+  const leftColumns = getColumns(leftCodeCol, leftBlockEnd);
+  const rightColumns = getColumns(rightCodeCol, rightBlockEnd);
 
   const parseNumber = (value) => {
     const num = Number(String(value ?? "").trim());
@@ -230,18 +263,18 @@ function parseSplitTemplateRows(rows) {
     const row = rows[i] || [];
 
     const leftCode = String(row[leftCodeCol] ?? "").trim();
-    const leftTitle = String(row[leftCodeCol + 1] ?? "").trim();
-    const rightCode = String(row[rightCodeCol] ?? "").trim();
-    const rightTitle = String(row[rightCodeCol + 1] ?? "").trim();
+    const leftTitle = String(row[leftColumns.title] ?? "").trim();
+    const rightCode = String(row[rightColumns.code] ?? "").trim();
+    const rightTitle = String(row[rightColumns.title] ?? "").trim();
 
     if (leftCode || leftTitle) {
       firstSubjects.push({
         subject_code: leftCode,
         title: leftTitle,
-        lecture: parseNumber(row[leftCodeCol + 2]),
-        laboratory: parseNumber(row[leftCodeCol + 3]),
-        units: parseNumber(row[leftCodeCol + 4]),
-        prerequisites: [],
+        lecture: parseNumber(row[leftColumns.lecture]),
+        laboratory: parseNumber(row[leftColumns.laboratory]),
+        units: parseNumber(row[leftColumns.units]),
+        prerequisites: parsePrerequisites(row[leftColumns.prerequisites]),
       });
     }
 
@@ -249,10 +282,10 @@ function parseSplitTemplateRows(rows) {
       secondSubjects.push({
         subject_code: rightCode,
         title: rightTitle,
-        lecture: parseNumber(row[rightCodeCol + 2]),
-        laboratory: parseNumber(row[rightCodeCol + 3]),
-        units: parseNumber(row[rightCodeCol + 4]),
-        prerequisites: [],
+        lecture: parseNumber(row[rightColumns.lecture]),
+        laboratory: parseNumber(row[rightColumns.laboratory]),
+        units: parseNumber(row[rightColumns.units]),
+        prerequisites: parsePrerequisites(row[rightColumns.prerequisites]),
       });
     }
   }
@@ -288,10 +321,7 @@ function parseTemplateCsv(rows) {
     const raw = String(value ?? "").trim();
     if (!raw) return [];
 
-    return raw
-      .split(/[;,]/)
-      .map((entry) => entry.trim())
-      .filter(Boolean);
+    return parsePrerequisites(raw);
   };
 
   const parseNumber = (value) => {
