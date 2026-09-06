@@ -34,7 +34,11 @@ function SectionList() {
 
   const allTargetSectionKeys = sections.map(getSectionKey);
   const selectedTargetSections = sections.filter((section) => targetSectionKeys.includes(getSectionKey(section)));
-  const allSectionsSelected = targetSectionKeys.length === allTargetSectionKeys.length;
+  const allSectionsSelected = allTargetSectionKeys.length > 0 && targetSectionKeys.length === allTargetSectionKeys.length;
+
+  const handleToggleAllSections = (checked) => {
+    setTargetSectionKeys(checked ? allTargetSectionKeys : []);
+  };
 
   const displayedSections = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -428,7 +432,18 @@ function SectionList() {
                   </button>
                   {targetSectionsExpanded && (
                     <div className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-emerald-200 bg-white p-2">
-                      {sections.length > 0 ? sections.map((section) => {
+                      {sections.length > 0 ? (
+                        <>
+                          <label className="flex cursor-pointer items-center gap-2 rounded-md border-b border-slate-100 px-2 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-50">
+                            <input
+                              type="checkbox"
+                              checked={allSectionsSelected}
+                              onChange={(event) => handleToggleAllSections(event.target.checked)}
+                              className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
+                            />
+                            <span>All Sections</span>
+                          </label>
+                          {sections.map((section) => {
                         const key = getSectionKey(section);
                         return (
                           <label key={key} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm text-slate-700 hover:bg-emerald-50">
@@ -443,7 +458,9 @@ function SectionList() {
                             <span>Year {section.year} - Section {section.section} ({section.semester})</span>
                           </label>
                         );
-                      }) : (
+                          })}
+                        </>
+                      ) : (
                         <p className="px-2 py-2 text-sm text-slate-500">No sections available.</p>
                       )}
                     </div>
@@ -523,6 +540,15 @@ function SectionList() {
                   </button>
                   {targetSectionsExpanded && (
                     <div className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-emerald-200 bg-white p-2">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-md border-b border-slate-100 px-2 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-50">
+                        <input
+                          type="checkbox"
+                          checked={allSectionsSelected}
+                          onChange={(event) => handleToggleAllSections(event.target.checked)}
+                          className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
+                        />
+                        <span>All Sections</span>
+                      </label>
                       {sections.map((section) => {
                         const key = getSectionKey(section);
                         return (
