@@ -334,6 +334,32 @@ function Dashboard() {
         }
     };
 
+    const handlePreviewSectionChange = (applicantID, sectionValue) => {
+        setPreviewData((current) => {
+            if (!current) return current;
+            return {
+                ...current,
+                placements: current.placements.map((placement) => {
+                    if (placement.applicantID !== applicantID) return placement;
+                    const selected = (placement.available_sections ?? []).find((section) => section.section === sectionValue);
+                    if (!selected) return placement;
+                    return {
+                        ...placement,
+                        assigned_section: selected.section,
+                        assigned_year: selected.year,
+                        assigned_semester: selected.semester,
+                        assigned_sections: (placement.assigned_sections ?? []).map((section, index) =>
+                            index === 0 ? { ...section, ...selected, isMain: true } : section
+                        ),
+                    };
+                }),
+            };
+        });
+    };
+
+    const getSelectedPreviewSection = (placement) =>
+        (placement?.available_sections ?? []).find((section) => section.section === placement.assigned_section);
+
     const normalizeCurriculumYear = (year) => {
         const value = String(year ?? "").trim().toLowerCase();
         const yearMap = {
@@ -446,6 +472,11 @@ function Dashboard() {
     const handleConfirmBatchEnroll = async () => {
         if (!previewData || isBatchEnrolling) return;
         const applicantIDs = previewData.placements.map((p) => p.applicantID).filter(Boolean);
+        const selectedSections = Object.fromEntries(
+            previewData.placements
+                .filter((placement) => placement.applicantID && placement.assigned_section)
+                .map((placement) => [placement.applicantID, placement.assigned_section])
+        );
         if (applicantIDs.length === 0) {
             setShowEnrollmentPreview(false);
             return;
@@ -453,7 +484,7 @@ function Dashboard() {
 
         try {
             setIsBatchEnrolling(true);
-            const response = await api.post("/students/batch-enroll", { applicantIDs });
+            const response = await api.post("/students/batch-enroll", { applicantIDs, selectedSections });
             const { enrolled, blocked, notFound } = response.data;
 
             enrolled.forEach((item) => {
@@ -893,25 +924,39 @@ function Dashboard() {
                                                                     </button>
                                                                 </td>
                                                                 <td className="px-4 py-3 text-center">
-                                                                    <div className="flex flex-wrap items-center justify-center gap-1.5">
-                                                                        {getAssignedSectionsForPreview(p).map((sectionEntry, sectionIndex, allSections) => (
-                                                                            <React.Fragment key={`${p.applicantID || idx}-${sectionEntry.year}-${sectionEntry.section}-${sectionIndex}`}>
-                                                                                <span
-                                                                                    className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold border ${
-                                                                                        sectionEntry.isMain
-                                                                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                                                                            : "bg-red-50 text-red-700 border-red-200"
-                                                                                    }`}
-                                                                                >
-                                                                                    <i className="fa-solid fa-layer-group text-[0.6rem]" />
-                                                                                    Section {sectionEntry.year || p.assigned_year || selectedSectionGroup.year}-{sectionEntry.section}
-                                                                                </span>
-                                                                                {sectionIndex < allSections.length - 1 && (
-                                                                                    <span className="px-0.5 text-xs font-bold text-gray-400">|</span>
-                                                                                )}
-                                                                            </React.Fragment>
+                                                                    <select
+                                                                        value={p.assigned_section || ""}
+                                                                        onChange={(event) => handlePreviewSectionChange(p.applicantID, event.target.value)}
+                                                                        className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                                                                        aria-label={`Assigned section for ${p.applicant_name}`}
+                                                                    >
+                                                                        {(p.available_sections ?? []).map((section) => (
+                                                                            <option key={`${section.year}-${section.section}-${section.semester}`} value={section.section}>
+                                                                                Section {section.year}-{section.section} ({p.status === "Block" ? `${section.blockCount}/${section.blockCapacity}` : `${section.total}/${section.totalCapacity}`})
+                                                                            </option>
                                                                         ))}
-                                                                    </div>
+                                                                    </select>
+                                                                    {(() => {
+                                                                        const selectedSection = getSelectedPreviewSection(p);
+                                                                        return selectedSection ? (
+                                                                            <span className={`ml-1.5 inline-flex items-center rounded-full px-2 py-1 text-[0.65rem] font-bold ${
+                                                                                selectedSection.isExisting
+                                                                                    ? "bg-emerald-50 text-emerald-700"
+                                                                                    : "bg-amber-50 text-amber-700"
+                                                                            }`}>
+                                                                                {selectedSection.isExisting ? "Existing" : "To be Created"}
+                                                                            </span>
+                                                                        ) : null;
+                                                                    })()}
+                                                                    {getAssignedSectionsForPreview(p).length > 1 && (
+                                                                        <div className="mt-1 flex flex-wrap justify-center gap-1">
+                                                                            {getAssignedSectionsForPreview(p).slice(1).map((sectionEntry, sectionIndex) => (
+                                                                                <span key={`${p.applicantID}-${sectionEntry.section}-${sectionIndex}`} className="text-[0.65rem] text-red-700">
+                                                                                    + Section {sectionEntry.year}-{sectionEntry.section}
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
                                                                 </td>
                                                             </tr>
                                                         ))}

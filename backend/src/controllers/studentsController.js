@@ -136,6 +136,7 @@ function ensureSectionState(sectionGroups, year, semester, sectionName) {
       section: normalizedSection,
       sourceSection,
     });
+    section.isExisting = false;
     group.push(section);
   }
   return section;
@@ -211,7 +212,7 @@ function getEnrollmentIdentityPayload(applicant, applicantID) {
   return { applicantIdentifier, studentNumber };
 }
 
-async function prepareEnrollmentPayload({ applicant, applicantID, sectionGroups }) {
+async function prepareEnrollmentPayload({ applicant, applicantID, sectionGroups, selectedSection }) {
   const normalizedApplicant = normalizeImportedStudent(applicant);
   const now = new Date();
   const { studentNumber } = getEnrollmentIdentityPayload(applicant, applicantID);
@@ -298,7 +299,14 @@ async function prepareEnrollmentPayload({ applicant, applicantID, sectionGroups 
     semester: enrollmentSemester,
     status: "Block",
   };
-  const chosenSection = chooseSectionForStudent(sectionGroups, tempStudent);
+  const chosenSection = selectedSection
+    ? ensureSectionState(sectionGroups, enrollmentYear, enrollmentSemester, selectedSection)
+    : chooseSectionForStudent(sectionGroups, tempStudent);
+  const requiredBlockCapacity = Number(chosenSection.blockCount ?? 0) + 1;
+  if (requiredBlockCapacity > Number(chosenSection.blockCapacity ?? 0)) {
+    chosenSection.blockCapacity = requiredBlockCapacity;
+    chosenSection.totalCapacity = Math.max(Number(chosenSection.totalCapacity ?? 0), chosenSection.blockCapacity + Number(chosenSection.irregularCapacity ?? 0));
+  }
   addStudentToSectionState(chosenSection, "Block");
 
   return {
@@ -494,6 +502,7 @@ function chooseSectionForStudent(sectionGroups, student) {
   const usedNames = new Set(groupSections.map((section) => normalizeSectionName(section.section)).filter(Boolean));
   const sourceSection = orderedSections[0] ?? sectionGroups.defaultSourceSection ?? null;
   const nextSection = createSectionState({ year, semester, section: getNextSectionName(usedNames), sourceSection });
+  nextSection.isExisting = false;
   groupSections.push(nextSection);
   return nextSection;
 }
@@ -527,6 +536,7 @@ async function buildSectionGroups() {
       blockCapacity: Number(section.blockCapacity ?? section.regularCapacity ?? defaultCapacities.blockCapacity),
       irregularCapacity: Number(section.irregularCapacity ?? defaultCapacities.irregularCapacity),
       totalCapacity: Number(section.totalCapacity ?? defaultCapacities.totalCapacity),
+      isExisting: true,
     });
     sectionGroups.set(key, group);
   }
@@ -949,6 +959,17 @@ export async function batchEnrollPreview(req, res) {
         irregularSection: isIrregular ? student.irregularSection : [],
         irregularYear: isIrregular ? student.irregularYear : [],
         assigned_sections: assignedSections,
+        available_sections: (sectionGroups.get(`${normalizeText(applicant.year)}::${normalizeSemester(applicant.semester)}`) ?? [])
+          .map((section) => ({
+            year: section.year,
+            section: section.section,
+            semester: section.semester,
+            total: Number(section.blockCount ?? 0) + Number(section.irregularCount ?? 0),
+            totalCapacity: Number(section.totalCapacity ?? 0),
+            blockCount: Number(section.blockCount ?? 0),
+            blockCapacity: Number(section.blockCapacity ?? 0),
+            isExisting: section.isExisting !== false,
+          })),
         advisedSubjectCount: isIrregular ? irregularMeta.subjectIds.length : 0,
       });
     }
@@ -962,7 +983,7 @@ export async function batchEnrollPreview(req, res) {
 
 export async function batchEnrollFromApplicants(req, res) {
   try {
-    const { applicantIDs } = req.body;
+    const { applicantIDs, selectedSections = {} } = req.body;
     if (!Array.isArray(applicantIDs) || applicantIDs.length === 0) {
       return res.status(400).json({ message: "applicantIDs array is required" });
     }
@@ -991,7 +1012,12 @@ export async function batchEnrollFromApplicants(req, res) {
           continue;
         }
 
-        const enrollmentPlan = await prepareEnrollmentPayload({ applicant, applicantID, sectionGroups });
+        const enrollmentPlan = await prepareEnrollmentPayload({
+          applicant,
+          applicantID,
+          sectionGroups,
+          selectedSection: selectedSections?.[applicantID],
+        });
         if (!enrollmentPlan.ok) {
           results.blocked.push({
             applicantID,
