@@ -137,6 +137,13 @@ export default function CurriculumTable({ onRegularImportSuccess }) {
       { lec: 0, lab: 0, units: 0 }
     );
 
+  const formatPrerequisites = (prerequisites) => {
+    if (Array.isArray(prerequisites)) {
+      return prerequisites.filter(Boolean).join(", ");
+    }
+    return String(prerequisites ?? "").trim();
+  };
+
   const parseCurriculumImportFile = async (file) => {
     const fileName = String(file?.name ?? "").toLowerCase();
     const isCsv = fileName.endsWith(".csv");
@@ -387,7 +394,12 @@ export default function CurriculumTable({ onRegularImportSuccess }) {
                     {sub.subject_code || sub.code || ""}
                   </td>
                   <td className="py-3 px-3 sm:px-4 text-gray-600 break-words leading-relaxed">
-                    {sub.title || ""}
+                    <div>{sub.title || ""}</div>
+                    {formatPrerequisites(sub.prerequisites) && (
+                      <div className="mt-0.5 text-xs text-gray-500">
+                        (Pre: {formatPrerequisites(sub.prerequisites)})
+                      </div>
+                    )}
                   </td>
                   <td className="py-3 px-2 sm:px-4 text-center text-gray-500 whitespace-nowrap">
                     {sub.lecture || 0}
