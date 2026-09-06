@@ -26,6 +26,15 @@ function SectionList() {
   const [manualBlockCapacity, setManualBlockCapacity] = useState("");
   const [manualIrregularCapacity, setManualIrregularCapacity] = useState("");
   const [manualError, setManualError] = useState("");
+  const [targetSectionKeys, setTargetSectionKeys] = useState([]);
+  const [targetSectionsExpanded, setTargetSectionsExpanded] = useState(false);
+
+  const getSectionKey = (section) =>
+    `${String(section.year ?? "").trim()}::${String(section.section ?? "").trim()}::${String(section.semester ?? "").trim()}`;
+
+  const allTargetSectionKeys = sections.map(getSectionKey);
+  const selectedTargetSections = sections.filter((section) => targetSectionKeys.includes(getSectionKey(section)));
+  const allSectionsSelected = targetSectionKeys.length === allTargetSectionKeys.length;
 
   const displayedSections = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -143,13 +152,6 @@ function SectionList() {
     }
   };
 
-  const getCurrentTotalCapacity = () => {
-    if (sections.length > 0 && sections[0].totalCapacity) {
-      return Number(sections[0].totalCapacity);
-    }
-    return 50;
-  };
-
   const handleConfirmCapacityUpdate = async () => {
     if (!previewData || isUpdating) return;
 
@@ -159,14 +161,19 @@ function SectionList() {
         totalCapacity: previewData.totalCapacity,
         blockCapacity: previewData.blockCapacity,
         irregularCapacity: previewData.irregularCapacity,
+        targetSections: previewData.allSections ? null : previewData.targetSections,
       };
       const response = await api.patch("/sections/capacity/all", updatePayload);
-      toast.success("All section capacities updated successfully");
+      toast.success(
+        previewData.allSections
+          ? "All section capacities updated successfully"
+          : "Selected section capacities updated successfully"
+      );
       setShowConfirmation(false);
       setPreviewData(null);
       setCapacityValue(0);
       
-      if (response.data?.sections && response.data.sections.length > 0) {
+      if (previewData.allSections && response.data?.sections && response.data.sections.length > 0) {
         const normalized = response.data.sections.map((section) => ({
           ...section,
           blockCount: Number(section.blockCount ?? section.regular ?? 0),
@@ -213,10 +220,17 @@ function SectionList() {
   };
 
   const handleSetCapacity = () => {
+    if (selectedTargetSections.length === 0) {
+      setManualError("Select at least one target section");
+      return;
+    }
+
     const capacities = {
       totalCapacity: capacityValue,
       blockCapacity: capacityValue * 0.9,
       irregularCapacity: capacityValue * 0.1,
+      targetSections: selectedTargetSections,
+      allSections: allSectionsSelected,
     };
 
     setPreviewData(capacities);
@@ -230,6 +244,8 @@ function SectionList() {
     setManualIrregularCapacity("");
     setManualMode(false);
     setManualError("");
+    setTargetSectionKeys(sections.map(getSectionKey));
+    setTargetSectionsExpanded(false);
     setShowCapacityModal(true);
   };
 
@@ -272,6 +288,11 @@ function SectionList() {
       return;
     }
 
+    if (selectedTargetSections.length === 0) {
+      setManualError("Select at least one target section");
+      return;
+    }
+
     setManualError("");
     const total = block + irregular;
     setCapacityValue(total);
@@ -279,6 +300,8 @@ function SectionList() {
       totalCapacity: total,
       blockCapacity: block,
       irregularCapacity: irregular,
+      targetSections: selectedTargetSections,
+      allSections: allSectionsSelected,
     });
     setShowConfirmation(true);
     setShowCapacityModal(false);
@@ -389,6 +412,43 @@ function SectionList() {
 
             {!manualMode ? (
               <div className="mb-6 flex flex-col gap-3">
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => setTargetSectionsExpanded((expanded) => !expanded)}
+                    className="flex w-full items-center justify-between text-left"
+                  >
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-emerald-800">Target Section</p>
+                      <p className="mt-1 text-sm font-semibold text-emerald-700">
+                        {allSectionsSelected ? "All Section" : `${selectedTargetSections.length} section(s) selected`}
+                      </p>
+                    </div>
+                    <i className={`fa-solid ${targetSectionsExpanded ? "fa-chevron-up" : "fa-chevron-down"} text-sm text-emerald-700`} />
+                  </button>
+                  {targetSectionsExpanded && (
+                    <div className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-emerald-200 bg-white p-2">
+                      {sections.length > 0 ? sections.map((section) => {
+                        const key = getSectionKey(section);
+                        return (
+                          <label key={key} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm text-slate-700 hover:bg-emerald-50">
+                            <input
+                              type="checkbox"
+                              checked={targetSectionKeys.includes(key)}
+                              onChange={() => setTargetSectionKeys((current) =>
+                                current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
+                              )}
+                              className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
+                            />
+                            <span>Year {section.year} - Section {section.section} ({section.semester})</span>
+                          </label>
+                        );
+                      }) : (
+                        <p className="px-2 py-2 text-sm text-slate-500">No sections available.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-600">New Total Capacity</label>
                 <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/70 p-3 shadow-xs">
                   <button
@@ -447,6 +507,41 @@ function SectionList() {
               </div>
             ) : (
               <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => setTargetSectionsExpanded((expanded) => !expanded)}
+                    className="flex w-full items-center justify-between text-left"
+                  >
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-emerald-800">Target Section</p>
+                      <p className="mt-1 text-sm font-semibold text-emerald-700">
+                        {allSectionsSelected ? "All Section" : `${selectedTargetSections.length} section(s) selected`}
+                      </p>
+                    </div>
+                    <i className={`fa-solid ${targetSectionsExpanded ? "fa-chevron-up" : "fa-chevron-down"} text-sm text-emerald-700`} />
+                  </button>
+                  {targetSectionsExpanded && (
+                    <div className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-emerald-200 bg-white p-2">
+                      {sections.map((section) => {
+                        const key = getSectionKey(section);
+                        return (
+                          <label key={key} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm text-slate-700 hover:bg-emerald-50">
+                            <input
+                              type="checkbox"
+                              checked={targetSectionKeys.includes(key)}
+                              onChange={() => setTargetSectionKeys((current) =>
+                                current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
+                              )}
+                              className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
+                            />
+                            <span>Year {section.year} - Section {section.section} ({section.semester})</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-600">Block Capacity</label>
                   <input

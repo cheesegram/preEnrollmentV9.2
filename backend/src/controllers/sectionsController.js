@@ -181,6 +181,10 @@ export async function updateAllSectionsCapacity(req, res) {
     const totalCapacity = Math.max(0, Number(req.body?.totalCapacity) || 0);
     const blockCapacity = req.body?.blockCapacity;
     const irregularCapacity = req.body?.irregularCapacity;
+    const targetSections = Array.isArray(req.body?.targetSections) ? req.body.targetSections : null;
+    if (targetSections && targetSections.length === 0) {
+      return res.status(400).json({ message: "At least one target section is required" });
+    }
 
     const hasManualValues =
       blockCapacity != null &&
@@ -201,7 +205,17 @@ export async function updateAllSectionsCapacity(req, res) {
       capacities = getSectionCapacities(totalCapacity);
     }
 
-    const result = await Section.updateMany({}, {
+    const targetFilter = targetSections?.length
+      ? {
+          $or: targetSections.map((target) => ({
+            year: String(target?.year ?? "").trim(),
+            section: String(target?.section ?? "").trim(),
+            semester: String(target?.semester ?? "").trim(),
+          })),
+        }
+      : {};
+
+    const result = await Section.updateMany(targetFilter, {
       $set: {
         totalCapacity: capacities.totalCapacity,
         irregularCapacity: capacities.irregularCapacity,
@@ -211,14 +225,20 @@ export async function updateAllSectionsCapacity(req, res) {
     });
 
     let rebalancedSections = [];
-    const years = await Section.distinct("year");
-    for (const year of years) {
-      const semesters = await Section.distinct("semester", { year });
-      for (const semester of semesters) {
-        const rebalanced = await rebalanceSections(year, semester);
-        rebalancedSections.push(...rebalanced);
+    if (!targetSections) {
+      const years = await Section.distinct("year");
+      for (const year of years) {
+        const semesters = await Section.distinct("semester", { year });
+        for (const semester of semesters) {
+          const rebalanced = await rebalanceSections(year, semester);
+          rebalancedSections.push(...rebalanced);
+        }
       }
     }
+
+    const updatedSections = targetSections
+      ? await Section.find(targetFilter).lean()
+      : rebalancedSections;
 
     console.log("[DEBUG] Capacities sent:", capacities);
     console.log("[DEBUG] Rebalanced sections count:", rebalancedSections.length);
@@ -227,7 +247,7 @@ export async function updateAllSectionsCapacity(req, res) {
       message: "All sections capacity updated successfully",
       modified: result.modifiedCount,
       rebalanced: rebalancedSections.length,
-      sections: rebalancedSections
+      sections: updatedSections
     });
   } catch (error) {
     console.error("Error in updateAllSectionsCapacity controller", error);
