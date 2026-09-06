@@ -28,6 +28,7 @@ function SectionList() {
   const [manualError, setManualError] = useState("");
   const [targetSectionKeys, setTargetSectionKeys] = useState([]);
   const [targetSectionsExpanded, setTargetSectionsExpanded] = useState(false);
+  const [applyAutoSectioning, setApplyAutoSectioning] = useState(true);
 
   const getSectionKey = (section) =>
     `${String(section.year ?? "").trim()}::${String(section.section ?? "").trim()}::${String(section.semester ?? "").trim()}`;
@@ -166,6 +167,7 @@ function SectionList() {
         blockCapacity: previewData.blockCapacity,
         irregularCapacity: previewData.irregularCapacity,
         targetSections: previewData.allSections ? null : previewData.targetSections,
+        applyAutoSectioning: previewData.applyAutoSectioning,
       };
       const response = await api.patch("/sections/capacity/all", updatePayload);
       toast.success(
@@ -235,6 +237,7 @@ function SectionList() {
       irregularCapacity: capacityValue * 0.1,
       targetSections: selectedTargetSections,
       allSections: allSectionsSelected,
+      applyAutoSectioning,
     };
 
     setPreviewData(capacities);
@@ -248,6 +251,7 @@ function SectionList() {
     setManualIrregularCapacity("");
     setManualMode(false);
     setManualError("");
+    setApplyAutoSectioning(true);
     setTargetSectionKeys(sections.map(getSectionKey));
     setTargetSectionsExpanded(false);
     setShowCapacityModal(true);
@@ -306,6 +310,7 @@ function SectionList() {
       irregularCapacity: irregular,
       targetSections: selectedTargetSections,
       allSections: allSectionsSelected,
+      applyAutoSectioning,
     });
     setShowConfirmation(true);
     setShowCapacityModal(false);
@@ -602,21 +607,23 @@ function SectionList() {
             )}
 
             {/* Footer */}
-            <div className="flex items-center justify-between border-t border-slate-100 pt-4 mt-2">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={manualMode}
-                  onChange={(e) => {
-                    setManualMode(e.target.checked);
-                    setManualError("");
-                  }}
-                  className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
-                />
-                <span className="text-xs font-bold text-slate-700">Set Manually</span>
-              </label>
+            <div className="mt-2 flex flex-col gap-4 border-t border-slate-100 pt-4">
+              <div className="flex items-center justify-between gap-4">
+                <label className="inline-flex cursor-pointer items-center gap-3 select-none">
+                  <input
+                    type="checkbox"
+                    checked={manualMode}
+                    onChange={(e) => {
+                      setManualMode(e.target.checked);
+                      setManualError("");
+                    }}
+                    className="peer sr-only"
+                  />
+                  <span className="relative h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-emerald-700 peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-500 peer-focus-visible:ring-offset-2 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow-sm after:transition peer-checked:after:translate-x-5" />
+                  <span className="text-xs font-bold text-slate-700">Set Manually</span>
+                </label>
 
-              <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2.5">
                 <button
                   type="button"
                   onClick={() => setShowCapacityModal(false)}
@@ -643,7 +650,34 @@ function SectionList() {
                   <i className="fa-solid fa-check text-xs" />
                   <span>Confirm Capacity</span>
                 </button>
+                </div>
               </div>
+
+              <fieldset className="flex flex-wrap items-center gap-4">
+                <legend className="mr-2 text-xs font-bold uppercase tracking-wider text-slate-600">Apply Auto-Sectioning</legend>
+                <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-700">
+                  <input
+                    type="radio"
+                    name="apply-auto-sectioning"
+                    value="yes"
+                    checked={applyAutoSectioning}
+                    onChange={() => setApplyAutoSectioning(true)}
+                    className="h-4 w-4 border-slate-300 text-emerald-700 focus:ring-emerald-600"
+                  />
+                  Yes
+                </label>
+                <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-700">
+                  <input
+                    type="radio"
+                    name="apply-auto-sectioning"
+                    value="no"
+                    checked={!applyAutoSectioning}
+                    onChange={() => setApplyAutoSectioning(false)}
+                    className="h-4 w-4 border-slate-300 text-emerald-700 focus:ring-emerald-600"
+                  />
+                  No
+                </label>
+              </fieldset>
             </div>
           </div>
         </div>

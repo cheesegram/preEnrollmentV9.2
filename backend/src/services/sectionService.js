@@ -267,13 +267,23 @@ export function getStudentSectionIdentities(student = {}) {
   return [...identities.values()];
 }
 
-export async function rebalanceSections(year, semester) {
+export async function rebalanceSections(year, semester, preferredSection = null) {
   const filter = {
     year: String(year ?? "").trim(),
     semester: String(semester ?? "").trim() || "N/A",
   };
 
-  const allSections = await Section.find(filter).sort({ section: 1 }).lean();
+  const allSections = await Section.find(filter).lean();
+  if (preferredSection) {
+    allSections.sort((left, right) => {
+      const leftPreferred = String(left.section) === String(preferredSection);
+      const rightPreferred = String(right.section) === String(preferredSection);
+      if (leftPreferred !== rightPreferred) return leftPreferred ? -1 : 1;
+      return String(left.section).localeCompare(String(right.section), undefined, { numeric: true });
+    });
+  } else {
+    allSections.sort((left, right) => String(left.section).localeCompare(String(right.section), undefined, { numeric: true }));
+  }
   if (allSections.length === 0) {
     const newSection = createSectionState({
       year: filter.year,

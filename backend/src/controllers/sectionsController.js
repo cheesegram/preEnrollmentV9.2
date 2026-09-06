@@ -182,6 +182,7 @@ export async function updateAllSectionsCapacity(req, res) {
     const blockCapacity = req.body?.blockCapacity;
     const irregularCapacity = req.body?.irregularCapacity;
     const targetSections = Array.isArray(req.body?.targetSections) ? req.body.targetSections : null;
+    const applyAutoSectioning = req.body?.applyAutoSectioning !== false;
     if (targetSections && targetSections.length === 0) {
       return res.status(400).json({ message: "At least one target section is required" });
     }
@@ -225,7 +226,7 @@ export async function updateAllSectionsCapacity(req, res) {
     });
 
     let rebalancedSections = [];
-    if (!targetSections) {
+    if (applyAutoSectioning && !targetSections) {
       const years = await Section.distinct("year");
       for (const year of years) {
         const semesters = await Section.distinct("semester", { year });
@@ -233,6 +234,23 @@ export async function updateAllSectionsCapacity(req, res) {
           const rebalanced = await rebalanceSections(year, semester);
           rebalancedSections.push(...rebalanced);
         }
+      }
+    } else if (applyAutoSectioning) {
+      const rebalanceGroups = new Map();
+      for (const target of targetSections) {
+        const year = String(target?.year ?? "").trim();
+        const semester = String(target?.semester ?? "").trim();
+        const section = String(target?.section ?? "").trim();
+        if (!year || !semester || !section) continue;
+        const groupKey = `${year}::${semester}`;
+        if (!rebalanceGroups.has(groupKey)) {
+          rebalanceGroups.set(groupKey, { year, semester, section });
+        }
+      }
+
+      for (const target of rebalanceGroups.values()) {
+        const rebalanced = await rebalanceSections(target.year, target.semester, target.section);
+        rebalancedSections.push(...rebalanced);
       }
     }
 
@@ -247,6 +265,7 @@ export async function updateAllSectionsCapacity(req, res) {
       message: "All sections capacity updated successfully",
       modified: result.modifiedCount,
       rebalanced: rebalancedSections.length,
+      autoSectioningApplied: applyAutoSectioning,
       sections: updatedSections
     });
   } catch (error) {
